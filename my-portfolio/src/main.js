@@ -4,13 +4,10 @@ import * as THREE from "three";
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
 
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.WebGLRenderer({antialias: true});
+// renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement)
-
-// console.log(scene);
-// console.log(camera);
-// console.log(renderer);
 
 // Creating a box
 
@@ -23,6 +20,14 @@ console.log(boxMaterial);
 console.log(boxMesh);
 
 scene.add(boxMesh);
-camera.position.z = 4
-renderer.render(scene, camera)
+camera.position.z = 2
+
+function animate(){
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera)
+  boxMesh.rotation.x += 0.01; 
+  boxMesh.rotation.y += 0.01; 
+}
+
+animate();
 
