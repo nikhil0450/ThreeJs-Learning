@@ -9,24 +9,37 @@ const renderer = new THREE.WebGLRenderer({antialias: true});
 renderer.setSize(innerWidth, innerHeight);
 document.body.appendChild(renderer.domElement)
 
-// Creating a box
+camera.position.z = 5
 
-const boxGeometry = new THREE.BoxGeometry(1, 1, 1);
-const boxMaterial = new THREE.MeshBasicMaterial({color: 0x00ff00});
-const boxMesh = new THREE.Mesh(boxGeometry, boxMaterial);
+// Creating a plane
+const planeGeometry = new THREE.PlaneGeometry(5, 5, 20, 20);
+const planeMaterial = new THREE.MeshPhongMaterial({color: 0xff0000, side: THREE.DoubleSide, flatShading : true})
+const planeMesh = new THREE.Mesh(planeGeometry, planeMaterial);
+scene.add(planeMesh)
+console.log(planeMesh.geometry.attributes.position.array);
 
-console.log(boxGeometry);
-console.log(boxMaterial);
-console.log(boxMesh);
+const { array } = planeMesh.geometry.attributes.position
+for (let i = 0; i < array.length; i+=3) {
+  let x = array[i]
+  let y = array[i+1]
+  let z = array[i+2]
 
-scene.add(boxMesh);
-camera.position.z = 2
+  // array[i] = x + Math.random() 
+  // array[i + 1] = y + Math.random() 
+  array[i+2] = z + Math.random() 
+  console.log(array[i]);
+}
+
+let light = new THREE.DirectionalLight(0xffffff, 1)
+light.position.set(0,0,1)
+scene.add(light)
+
 
 function animate(){
   requestAnimationFrame(animate);
   renderer.render(scene, camera)
-  boxMesh.rotation.x += 0.01; 
-  boxMesh.rotation.y += 0.01; 
+  // planeMesh.rotation.x += 0.01; 
+  // planeMesh.rotation.y += 0.01; 
 }
 
 animate();
