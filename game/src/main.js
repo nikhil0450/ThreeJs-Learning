@@ -9,13 +9,15 @@ const camera = new THREE.PerspectiveCamera(
   1000
 );
 
-const renderer = new THREE.WebGLRenderer();
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.shadowMap.enabled = true;
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 
 const light = new THREE.DirectionalLight(0xffffff, 1);
+light.castShadow = true;
 light.position.y = 3;
 light.position.z = 2;
 scene.add(light);
@@ -23,13 +25,15 @@ scene.add(light);
 const geometry = new THREE.BoxGeometry(1, 1, 1);
 const material = new THREE.MeshStandardMaterial({ color: 0x00ff00 });
 const cube = new THREE.Mesh(geometry, material);
+cube.castShadow = true;
 scene.add(cube);
 
 const ground = new THREE.Mesh(
   new THREE.BoxGeometry(5, 0.1, 10),
   new THREE.MeshStandardMaterial({ color: 0x0000ff })
 );
-ground.position.y = -1
+ground.receiveShadow = true;
+ground.position.y = -2
 scene.add(ground);
 
 camera.position.z = 5;
@@ -37,7 +41,8 @@ camera.position.z = 5;
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
-  cube.rotation.x += 0.01;
-  cube.rotation.y += 0.01;
+  // cube.position.y -= 0.01 
+  // cube.rotation.x += 0.01;
+  // cube.rotation.y += 0.01;
 }
 animate();
