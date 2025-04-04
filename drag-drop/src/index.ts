@@ -1,198 +1,188 @@
-import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
+import * as THREE from 'three';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 
 // CAMERA
-const camera: THREE.PerspectiveCamera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1500);
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1500);
 camera.position.set(-35, 70, 100);
 camera.lookAt(new THREE.Vector3(0, 0, 0));
 
 // RENDERER
-const renderer: THREE.WebGLRenderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
-// WINDOW RESIZE HANDLING
-export function onWindowResize() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-}
-window.addEventListener('resize', onWindowResize);
-
 // SCENE
-const scene: THREE.Scene = new THREE.Scene()
+const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xbfd1e5);
 
 // CONTROLS
 const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.enableZoom = true;
 
-export function animate() {
-  dragObject();
+// LIGHTS
+scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(-30, 50, -30);
+dirLight.castShadow = true;
+scene.add(dirLight);
+
+// FLOOR
+function createFloor() {
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(100, 2, 100),
+    new THREE.MeshPhongMaterial({ color: 0xf9c834 })
+  );
+  floor.position.set(0, -1, 3);
+  floor.receiveShadow = true;
+  floor.userData.ground = true;
+  scene.add(floor);
+}
+
+// OBJECT CREATION
+function createObject(geometry, material, position, name) {
+  const object = new THREE.Mesh(geometry, material);
+  object.position.copy(position);
+  object.castShadow = true;
+  object.receiveShadow = true;
+  object.userData.draggable = true;
+  object.userData.name = name;
+  scene.add(object);
+  return object;
+}
+
+function createBox() {
+  return createObject(
+    new THREE.BoxGeometry(6, 6, 6),
+    new THREE.MeshPhongMaterial({ color: 0xdc143c }),
+    new THREE.Vector3(15, 3, 15),
+    'BOX'
+  );
+}
+
+function createSphere() {
+  return createObject(
+    new THREE.SphereGeometry(4, 32, 32),
+    new THREE.MeshPhongMaterial({ color: 0x43a1f4 }),
+    new THREE.Vector3(15, 4, -15),
+    'SPHERE'
+  );
+}
+
+function createCylinder() {
+  return createObject(
+    new THREE.CylinderGeometry(4, 4, 6, 32),
+    new THREE.MeshPhongMaterial({ color: 0x90ee90 }),
+    new THREE.Vector3(-15, 3, 15),
+    'CYLINDER'
+  );
+}
+
+function createCastle() {
+  const objLoader = new OBJLoader();
+  objLoader.load('./castle.obj', (group) => {
+    const castle = group.children[0];
+    castle.position.set(-15, 0, -15);
+    castle.scale.set(5, 5, 5);
+    castle.castShadow = true;
+    castle.receiveShadow = true;
+    castle.userData.draggable = true;
+    castle.userData.name = 'CASTLE';
+    scene.add(castle);
+  });
+}
+
+// DRAG & DROP
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let draggable: THREE.Object3D | null = null;
+
+window.addEventListener('pointerdown', (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(scene.children, true);
+
+  if (intersects.length > 0 && intersects[0].object.userData.draggable) {
+    draggable = intersects[0].object;
+    controls.enableRotate = false; // Disable rotation when dragging
+  }
+});
+
+window.addEventListener('pointermove', (event) => {
+  if (!draggable) return;
+
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(scene.children, true);
+
+  for (let i = 0; i < intersects.length; i++) {
+    if (intersects[i].object.userData.ground) {
+      draggable.position.x = intersects[i].point.x;
+      draggable.position.z = intersects[i].point.z;
+      break;
+    }
+  }
+});
+
+window.addEventListener('pointerup', () => {
+  if (draggable) {
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(scene.children, true);
+
+    let highestY = -Infinity;
+    let targetObject: THREE.Object3D | null = null;
+
+    for (const hit of intersects) {
+      if (hit.object !== draggable && hit.object.userData.draggable) {
+        const boundingBox = new THREE.Box3().setFromObject(hit.object);
+        if (boundingBox.max.y > highestY) {
+          highestY = boundingBox.max.y;
+          targetObject = hit.object;
+        }
+      }
+    }
+
+    if (targetObject) {
+      // STACKING ON OBJECT
+      const targetBox = new THREE.Box3().setFromObject(targetObject);
+      const draggableBox = new THREE.Box3().setFromObject(draggable);
+      draggable.position.y = targetBox.max.y + draggableBox.getSize(new THREE.Vector3()).y / 2;
+    } else {
+      // Ensure we calculate the bounding box correctly, even for groups like the castle
+      const boundingBox = new THREE.Box3();
+      boundingBox.setFromObject(draggable);
+
+      // Calculate correct height
+      const objectHeight = boundingBox.getSize(new THREE.Vector3()).y;
+
+      // Set position correctly to sit on the floor
+      draggable.position.y = objectHeight / 2;
+
+    }
+
+    controls.enableRotate = true; // Re-enable rotation after drop
+    draggable = null;
+  }
+});
+
+// INITIALIZATION
+createFloor();
+createBox();
+createSphere();
+createCylinder();
+createCastle();
+
+function animate() {
   renderer.render(scene, camera);
   requestAnimationFrame(animate);
 }
 
-// ambient light
-let hemiLight = new THREE.AmbientLight(0xffffff, 0.20);
-scene.add(hemiLight);
-
-//Add directional light
-let dirLight = new THREE.DirectionalLight(0xffffff, 1);
-dirLight.position.set(-30, 50, -30);
-scene.add(dirLight);
-dirLight.castShadow = true;
-dirLight.shadow.mapSize.width = 2048;
-dirLight.shadow.mapSize.height = 2048;
-dirLight.shadow.camera.left = -70;
-dirLight.shadow.camera.right = 70;
-dirLight.shadow.camera.top = 70;
-dirLight.shadow.camera.bottom = -70;
-
-function createFloor() {
-  let pos = { x: 0, y: -1, z: 3 };
-  let scale = { x: 100, y: 2, z: 100 };
-
-  let blockPlane = new THREE.Mesh(new THREE.BoxGeometry(),
-       new THREE.MeshPhongMaterial({ color: 0xf9c834 }));
-  blockPlane.position.set(pos.x, pos.y, pos.z);
-  blockPlane.scale.set(scale.x, scale.y, scale.z);
-  blockPlane.castShadow = true;
-  blockPlane.receiveShadow = true;
-  scene.add(blockPlane);
-
-  blockPlane.userData.ground = true
-}
-
-// box
-function createBox() {
-  let scale = { x: 6, y: 6, z: 6 }
-  let pos = { x: 15, y: scale.y / 2, z: 15 }
-
-  let box = new THREE.Mesh(new THREE.BoxGeometry(), 
-      new THREE.MeshPhongMaterial({ color: 0xDC143C }));
-  box.position.set(pos.x, pos.y, pos.z);
-  box.scale.set(scale.x, scale.y, scale.z);
-  box.castShadow = true;
-  box.receiveShadow = true;
-  scene.add(box)
-
-  box.userData.draggable = true
-  box.userData.name = 'BOX'
-}
-
-function createSphere() {
-  let radius = 4;
-  let pos = { x: 15, y: radius, z: -15 };
-
-  let sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 32), 
-      new THREE.MeshPhongMaterial({ color: 0x43a1f4 }))
-  sphere.position.set(pos.x, pos.y, pos.z)
-  sphere.castShadow = true
-  sphere.receiveShadow = true
-  scene.add(sphere)
-
-  sphere.userData.draggable = true
-  sphere.userData.name = 'SPHERE'
-}
-
-function createCylinder() {
-  let radius = 4;
-  let height = 6
-  let pos = { x: -15, y: height / 2, z: 15 };
-
-  // threejs
-  let cylinder = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, height, 32), new THREE.MeshPhongMaterial({ color: 0x90ee90 }))
-  cylinder.position.set(pos.x, pos.y, pos.z)
-  cylinder.castShadow = true
-  cylinder.receiveShadow = true
-  scene.add(cylinder)
-
-  cylinder.userData.draggable = true
-  cylinder.userData.name = 'CYLINDER'
-}
-
-function createCastle () {
-  const objLoader = new OBJLoader();
-
-  objLoader.loadAsync('./castle.obj').then((group) => {
-    const castle = group.children[0];
-
-    castle.position.x = -15
-    castle.position.z = -15
-
-    castle.scale.x = 5;
-    castle.scale.y = 5;
-    castle.scale.z = 5;
-
-    castle.castShadow = true
-    castle.receiveShadow = true
-
-    castle.userData.draggable = true
-    castle.userData.name = 'CASTLE'
-
-    scene.add(castle)
-  })
-}
-
-const raycaster = new THREE.Raycaster(); // create once
-const clickMouse = new THREE.Vector2();  // create once
-const moveMouse = new THREE.Vector2();   // create once
-var draggable: THREE.Object3D;
-
-function intersect(pos: THREE.Vector2) {
-  raycaster.setFromCamera(pos, camera);
-  return raycaster.intersectObjects(scene.children);
-}
-
-window.addEventListener('click', event => {
-  if (draggable != null) {
-    console.log(`dropping draggable ${draggable.userData.name}`)
-    draggable = null as any
-    return;
-  }
-
-  // THREE RAYCASTER
-  clickMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  clickMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-  const found = intersect(clickMouse);
-  if (found.length > 0) {
-    if (found[0].object.userData.draggable) {
-      draggable = found[0].object
-      console.log(`found draggable ${draggable.userData.name}`)
-    }
-  }
-})
-
-window.addEventListener('mousemove', event => {
-  moveMouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  moveMouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-});
-
-function dragObject() {
-  if (draggable != null) {
-    const found = intersect(moveMouse);
-    if (found.length > 0) {
-      for (let i = 0; i < found.length; i++) {
-        if (!found[i].object.userData.ground)
-          continue
-        
-        let target = found[i].point;
-        draggable.position.x = target.x
-        draggable.position.z = target.z
-      }
-    }
-  }
-}
-
-
-createFloor()
-createBox()
-createSphere()
-createCylinder()
-createCastle()
-
-animate()
+animate();
