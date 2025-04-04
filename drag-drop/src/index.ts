@@ -1,6 +1,19 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader';
+
+// Type declarations for objects with userData
+interface DraggableObject extends THREE.Object3D {
+  userData: {
+    draggable?: boolean;
+    name?: string;
+    baseHeight?: number;
+    height?: number;
+    yOffset?: number;
+    totalHeight?: number;
+    ground?: boolean;
+  };
+}
 
 // CAMERA
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 1500);
@@ -36,26 +49,31 @@ function createFloor() {
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(100, 2, 100),
     new THREE.MeshPhongMaterial({ color: 0xf9c834 })
-  );
+  ) as DraggableObject;
   floor.position.set(0, -1, 3);
   floor.receiveShadow = true;
   floor.userData.ground = true;
   scene.add(floor);
 }
 
-// OBJECT CREATION
-function createObject(geometry, material, position, name) {
-  const object = new THREE.Mesh(geometry, material);
+// OBJECT CREATION - Stores base height for stacking logic
+function createObject(geometry: THREE.BufferGeometry, material: THREE.Material, position: THREE.Vector3, name: string): DraggableObject {
+  const object = new THREE.Mesh(geometry, material) as DraggableObject;
   object.position.copy(position);
   object.castShadow = true;
   object.receiveShadow = true;
   object.userData.draggable = true;
   object.userData.name = name;
+
+  // Compute bounding box for stacking
+  const bbox = new THREE.Box3().setFromObject(object);
+  object.userData.baseHeight = (bbox.max.y - bbox.min.y) / 2;
+
   scene.add(object);
   return object;
 }
 
-function createBox() {
+function createBox(): DraggableObject {
   return createObject(
     new THREE.BoxGeometry(6, 6, 6),
     new THREE.MeshPhongMaterial({ color: 0xdc143c }),
@@ -64,7 +82,7 @@ function createBox() {
   );
 }
 
-function createSphere() {
+function createSphere(): DraggableObject {
   return createObject(
     new THREE.SphereGeometry(4, 32, 32),
     new THREE.MeshPhongMaterial({ color: 0x43a1f4 }),
@@ -73,7 +91,7 @@ function createSphere() {
   );
 }
 
-function createCylinder() {
+function createCylinder(): DraggableObject {
   return createObject(
     new THREE.CylinderGeometry(4, 4, 6, 32),
     new THREE.MeshPhongMaterial({ color: 0x90ee90 }),
@@ -82,24 +100,53 @@ function createCylinder() {
   );
 }
 
-function createCastle() {
-  const objLoader = new OBJLoader();
-  objLoader.load('./castle.obj', (group) => {
-    const castle = group.children[0];
-    castle.position.set(-15, 0, -15);
-    castle.scale.set(5, 5, 5);
-    castle.castShadow = true;
-    castle.receiveShadow = true;
-    castle.userData.draggable = true;
-    castle.userData.name = 'CASTLE';
-    scene.add(castle);
+function createWolf() {
+  const fbxLoader = new FBXLoader();
+  fbxLoader.load('./Wolf.fbx', (wolf: THREE.Group) => {
+    // First add to scene to calculate proper bounding box
+    scene.add(wolf);
+    
+    // Set scale and reset rotation
+    wolf.scale.set(0.2, 0.2, 0.2);
+    wolf.rotation.set(0, 0, 0);
+
+    // Compute bounding box after adding to scene
+    const bbox = new THREE.Box3().setFromObject(wolf);
+    const size = bbox.getSize(new THREE.Vector3());
+    
+    // Position wolf so its feet touch the ground
+    wolf.position.set(-15, 0, -15);
+
+    // Enable shadows
+    wolf.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // Store important dimensions
+    const draggableWolf = wolf as DraggableObject;
+    draggableWolf.userData.draggable = true;
+    draggableWolf.userData.name = 'WOLF';
+    draggableWolf.userData.baseHeight = 0; // Height from center to bottom
+    draggableWolf.userData.totalHeight = size.y; // Full height of wolf
   });
 }
 
 // DRAG & DROP
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
-let draggable: THREE.Object3D | null = null;
+let draggable: DraggableObject | null = null;
+let offset = new THREE.Vector3();
+
+function getTopParent(object: THREE.Object3D): DraggableObject {
+  let current = object;
+  while (current.parent && current.parent !== scene) {
+    current = current.parent;
+  }
+  return current as DraggableObject;
+}
 
 window.addEventListener('pointerdown', (event) => {
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -108,9 +155,14 @@ window.addEventListener('pointerdown', (event) => {
   raycaster.setFromCamera(mouse, camera);
   const intersects = raycaster.intersectObjects(scene.children, true);
 
-  if (intersects.length > 0 && intersects[0].object.userData.draggable) {
-    draggable = intersects[0].object;
-    controls.enableRotate = false; // Disable rotation when dragging
+  if (intersects.length > 0) {
+    const topParent = getTopParent(intersects[0].object);
+    if (topParent.userData.draggable) {
+      draggable = topParent;
+      controls.enabled = false;
+      offset.copy(intersects[0].point).sub(draggable.position);
+      offset.y = 0;
+    }
   }
 });
 
@@ -124,65 +176,56 @@ window.addEventListener('pointermove', (event) => {
   const intersects = raycaster.intersectObjects(scene.children, true);
 
   for (let i = 0; i < intersects.length; i++) {
-    if (intersects[i].object.userData.ground) {
-      draggable.position.x = intersects[i].point.x;
-      draggable.position.z = intersects[i].point.z;
+    const intersect = intersects[i];
+    const obj = getTopParent(intersect.object);
+    if (obj.userData.ground) {
+      draggable.position.x = intersect.point.x - offset.x;
+      draggable.position.z = intersect.point.z - offset.z;
       break;
     }
   }
 });
 
 window.addEventListener('pointerup', () => {
-  if (draggable) {
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(scene.children, true);
+  if (!draggable) return;
 
-    let highestY = -Infinity;
-    let targetObject: THREE.Object3D | null = null;
+  const bbox = new THREE.Box3().setFromObject(draggable);
+  const center = new THREE.Vector3();
+  bbox.getCenter(center);
 
-    for (const hit of intersects) {
-      if (hit.object !== draggable && hit.object.userData.draggable) {
-        const boundingBox = new THREE.Box3().setFromObject(hit.object);
-        if (boundingBox.max.y > highestY) {
-          highestY = boundingBox.max.y;
-          targetObject = hit.object;
-        }
-      }
-    }
+  raycaster.set(new THREE.Vector3(center.x, 1000, center.z), new THREE.Vector3(0, -1, 0));
+  const intersects = raycaster.intersectObjects(scene.children, true);
+  
+  const validIntersects = intersects.filter(intersect => {
+    const obj = getTopParent(intersect.object);
+    return obj !== draggable && !obj.userData.ground;
+  });
 
-    if (targetObject) {
-      // STACKING ON OBJECT
-      const targetBox = new THREE.Box3().setFromObject(targetObject);
-      const draggableBox = new THREE.Box3().setFromObject(draggable);
-      draggable.position.y = targetBox.max.y + draggableBox.getSize(new THREE.Vector3()).y / 2;
-    } else {
-      // Ensure we calculate the bounding box correctly, even for groups like the castle
-      const boundingBox = new THREE.Box3();
-      boundingBox.setFromObject(draggable);
-
-      // Calculate correct height
-      const objectHeight = boundingBox.getSize(new THREE.Vector3()).y;
-
-      // Set position correctly to sit on the floor
-      draggable.position.y = objectHeight / 2;
-
-    }
-
-    controls.enableRotate = true; // Re-enable rotation after drop
-    draggable = null;
+  if (validIntersects.length > 0) {
+    const highestIntersect = validIntersects.reduce((prev, current) => 
+      prev.point.y > current.point.y ? prev : current
+    );
+    draggable.position.y = highestIntersect.point.y + (draggable.userData.baseHeight || 0);
+  } else {
+    draggable.position.y = draggable.userData.baseHeight || 0;
   }
+
+  controls.enabled = true;
+  draggable = null;
 });
 
-// INITIALIZATION
+// Initialize scene
 createFloor();
 createBox();
 createSphere();
 createCylinder();
-createCastle();
+createWolf();
 
+// Animation loop
 function animate() {
-  renderer.render(scene, camera);
   requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
 }
 
 animate();
