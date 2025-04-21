@@ -102,12 +102,12 @@ function createCylinder(): DraggableObject {
 
 function createWolf() {
   const fbxLoader = new FBXLoader();
-  fbxLoader.load('./Wolf.fbx', (wolf: THREE.Group) => {
+  fbxLoader.load('./tshirt.FBX', (wolf: THREE.Group) => {
     // First add to scene to calculate proper bounding box
     scene.add(wolf);
     
     // Set scale and reset rotation
-    wolf.scale.set(0.2, 0.2, 0.2);
+    wolf.scale.set(0.25, 0.25, 0.25);
     wolf.rotation.set(0, 0, 0);
 
     // Compute bounding box after adding to scene
